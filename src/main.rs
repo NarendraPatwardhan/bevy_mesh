@@ -1,20 +1,30 @@
+use bevy::color::Srgba;
 use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::render::{mesh::Indices, mesh::PrimitiveTopology, render_asset::RenderAssetUsages};
+// Import the EguiPrimaryContextPass schedule
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, EguiPlugin::default()))
         .insert_resource(AmbientLight {
             color: Color::WHITE,
             brightness: 2000.0,
             affects_lightmapped_meshes: true,
         })
         .add_systems(Startup, (setup_camera, setup_cube, setup_lights))
+        // Camera systems can stay in the main Update loop
         .add_systems(Update, (pan_orbit_camera, reset_camera))
+        // *** THE FIX: Move the UI system to the correct schedule ***
+        .add_systems(EguiPrimaryContextPass, ui_color_picker)
         .run();
 }
+
+// Marker component for the cube's faces to query them in the UI system
+#[derive(Component)]
+struct ColoredCube;
 
 fn setup_lights(mut commands: Commands) {
     // Directional light for better overall illumination
@@ -119,11 +129,19 @@ fn setup_camera(mut commands: Commands) {
 }
 
 fn pan_orbit_camera(
+    mut contexts: EguiContexts, // Added to check for UI interaction
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut evr_motion: EventReader<MouseMotion>,
     mut evr_scroll: EventReader<MouseWheel>,
     mut q_camera: Query<(&PanOrbitSettings, &mut PanOrbitState, &mut Transform)>,
 ) {
+    // Prevent camera movement when interacting with the UI
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() {
+            return;
+        }
+    }
+
     let mut total_motion: Vec2 = evr_motion.read().map(|ev| ev.delta).sum();
     total_motion.y = -total_motion.y;
 
@@ -236,9 +254,17 @@ fn pan_orbit_camera(
 }
 
 fn reset_camera(
+    mut contexts: EguiContexts, // Added to check for UI interaction
     keys: Res<ButtonInput<KeyCode>>,
     mut q_camera: Query<(&mut PanOrbitState, &mut Transform)>,
 ) {
+    // Prevent camera reset when typing in the UI
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+    }
+
     if keys.just_pressed(KeyCode::KeyR) {
         for (mut state, mut transform) in &mut q_camera {
             *state = PanOrbitState::default_position();
@@ -299,6 +325,7 @@ fn setup_cube(
                 Mesh3d(meshes.add(create_plane_mesh(vertices, normal, indices.clone()))),
                 MeshMaterial3d(material.clone()),
                 Transform::default(),
+                ColoredCube, // Add the marker component to each face
             ));
         }
     }
@@ -319,4 +346,47 @@ fn create_plane_mesh(vertices: Vec<Vec3>, normal: Vec3, indices: Indices) -> Mes
     );
     mesh.insert_indices(indices);
     mesh
+}
+
+/// A system to display a UI window for changing the cube's color.
+fn ui_color_picker(
+    mut contexts: EguiContexts,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    cube_query: Query<&MeshMaterial3d<StandardMaterial>, With<ColoredCube>>,
+) {
+    if let Some(mesh_material) = cube_query.iter().next() {
+        let material_handle = &mesh_material.0;
+
+        if let Some(material) = materials.get_mut(material_handle) {
+            let Ok(ctx) = contexts.ctx_mut() else { return };
+            egui::Window::new("Cube Color").show(ctx, |ui| {
+                ui.label("Base Color:");
+                color_picker_widget(ui, &mut material.base_color);
+            });
+        }
+    }
+}
+
+/// A helper function to create a color picker widget, taken from the bevy_egui example.
+fn color_picker_widget(ui: &mut egui::Ui, color: &mut Color) -> egui::Response {
+    let [r, g, b, a] = Srgba::from(*color).to_f32_array();
+    let mut egui_color: egui::Rgba = egui::Rgba::from_srgba_unmultiplied(
+        (r * 255.0) as u8,
+        (g * 255.0) as u8,
+        (b * 255.0) as u8,
+        (a * 255.0) as u8,
+    );
+    let res = egui::widgets::color_picker::color_edit_button_rgba(
+        ui,
+        &mut egui_color,
+        egui::color_picker::Alpha::Opaque,
+    );
+    let [r, g, b, a] = egui_color.to_srgba_unmultiplied();
+    *color = Color::srgba(
+        r as f32 / 255.0,
+        g as f32 / 255.0,
+        b as f32 / 255.0,
+        a as f32 / 255.0,
+    );
+    res
 }
