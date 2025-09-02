@@ -1,4 +1,6 @@
+use bevy::color::Srgba;
 use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
+use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
 use bevy::render::{mesh::Indices, mesh::PrimitiveTopology, render_asset::RenderAssetUsages};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
@@ -9,16 +11,24 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 struct PlanetSettings {
     resolution: u32,
     spherify: bool,
+    wireframe: bool,
+    color: Color,
 }
 
 impl Default for PlanetSettings {
     fn default() -> Self {
         Self {
             resolution: 10,
-            spherify: true, // Start as a sphere
+            spherify: true,
+            wireframe: false,
+            color: Color::srgb(0.5, 0.5, 0.6),
         }
     }
 }
+
+/// A resource to hold the handle to the planet's single material.
+#[derive(Resource)]
+struct PlanetMaterial(Handle<StandardMaterial>);
 
 /// A component to identify a face of the planet and store its primary direction.
 #[derive(Component)]
@@ -28,15 +38,22 @@ struct PlanetFace {
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, EguiPlugin::default()))
+        .add_plugins((
+            DefaultPlugins,
+            EguiPlugin::default(),
+            WireframePlugin::default(),
+        ))
         .insert_resource(AmbientLight {
             color: Color::WHITE,
             brightness: 2000.0,
-            affects_lightmapped_meshes: true,
+            ..default()
         })
         .init_resource::<PlanetSettings>()
         .add_systems(Startup, (setup_camera, setup_planet, setup_lights))
-        .add_systems(Update, (pan_orbit_camera, reset_camera, update_planet))
+        .add_systems(
+            Update,
+            (pan_orbit_camera, reset_camera, apply_planet_settings),
+        )
         .add_systems(EguiPrimaryContextPass, ui_editor)
         .run();
 }
@@ -52,17 +69,19 @@ fn setup_lights(mut commands: Commands) {
     ));
 }
 
-/// Creates the initial 6 faces of the planet.
+/// Creates the initial 6 faces of the planet and the shared material.
 fn setup_planet(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     settings: Res<PlanetSettings>,
 ) {
-    let material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.5, 0.5, 0.6),
+    // Create the material and store its handle in a resource
+    let material_handle = materials.add(StandardMaterial {
+        base_color: settings.color,
         ..default()
     });
+    commands.insert_resource(PlanetMaterial(material_handle.clone()));
 
     let directions = [
         Vec3::Y,
@@ -76,26 +95,36 @@ fn setup_planet(
     for normal in directions {
         let mesh = create_face_mesh(settings.resolution, normal, settings.spherify);
 
-        // Using the same component structure as your original code
         commands.spawn((
             Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(material.clone()),
+            MeshMaterial3d(material_handle.clone()),
             Transform::default(),
             PlanetFace { normal },
         ));
     }
 }
 
-/// Regenerates the planet's mesh if the settings have changed.
-fn update_planet(
+/// Regenerates meshes, updates wireframe, and updates material color if settings have changed.
+fn apply_planet_settings(
     settings: Res<PlanetSettings>,
+    planet_material: Res<PlanetMaterial>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut wireframe_config: ResMut<WireframeConfig>,
     mut query: Query<(&mut Mesh3d, &PlanetFace)>,
 ) {
     if settings.is_changed() {
+        // Toggle wireframe
+        wireframe_config.global = settings.wireframe;
+
+        // Update color
+        if let Some(material) = materials.get_mut(&planet_material.0) {
+            material.base_color = settings.color;
+        }
+
+        // Regenerate meshes
         for (mut mesh_3d, face) in &mut query {
             let new_mesh = create_face_mesh(settings.resolution, face.normal, settings.spherify);
-            // Overwrite the old mesh handle with the new one.
             *mesh_3d = Mesh3d(meshes.add(new_mesh));
         }
     }
@@ -163,6 +192,10 @@ fn ui_editor(
         ui.label("Planet Settings");
         ui.add(egui::Slider::new(&mut settings.resolution, 2..=256).text("Resolution"));
         ui.checkbox(&mut settings.spherify, "Spherify");
+        ui.checkbox(&mut settings.wireframe, "Wireframe");
+
+        ui.label("Base Color:");
+        color_picker_widget(ui, &mut settings.color);
 
         ui.separator();
 
@@ -176,6 +209,30 @@ fn ui_editor(
             }
         }
     });
+}
+
+/// A helper function to create a color picker widget.
+fn color_picker_widget(ui: &mut egui::Ui, color: &mut Color) -> egui::Response {
+    let [r, g, b, a] = Srgba::from(*color).to_f32_array();
+    let mut egui_color: egui::Rgba = egui::Rgba::from_srgba_unmultiplied(
+        (r * 255.0) as u8,
+        (g * 255.0) as u8,
+        (b * 255.0) as u8,
+        (a * 255.0) as u8,
+    );
+    let res = egui::widgets::color_picker::color_edit_button_rgba(
+        ui,
+        &mut egui_color,
+        egui::color_picker::Alpha::Opaque,
+    );
+    let [r, g, b, a] = egui_color.to_srgba_unmultiplied();
+    *color = Color::srgba(
+        r as f32 / 255.0,
+        g as f32 / 255.0,
+        b as f32 / 255.0,
+        a as f32 / 255.0,
+    );
+    res
 }
 
 // --- Camera Controller Code (Unchanged from your original) ---
