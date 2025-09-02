@@ -12,7 +12,7 @@ fn main() {
             affects_lightmapped_meshes: true,
         })
         .add_systems(Startup, (setup_camera, setup_cube, setup_lights))
-        .add_systems(Update, pan_orbit_camera)
+        .add_systems(Update, (pan_orbit_camera, reset_camera))
         .run();
 }
 
@@ -25,17 +25,6 @@ fn setup_lights(mut commands: Commands) {
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -PI / 4.0, -PI / 4.0, 0.0)),
-    ));
-
-    // Original point light, updated for compatibility
-    commands.spawn((
-        PointLight {
-            intensity: 10_000.0, // PointLight still uses intensity (in lumens)
-            shadows_enabled: true,
-            range: 20.0,
-            ..default()
-        },
-        Transform::from_xyz(4.0, 8.0, 4.0),
     ));
 }
 
@@ -57,6 +46,18 @@ impl Default for PanOrbitState {
             upside_down: false,
             pitch: 0.0,
             yaw: 0.0,
+        }
+    }
+}
+
+impl PanOrbitState {
+    fn default_position() -> Self {
+        Self {
+            center: Vec3::ZERO,
+            radius: 6.0,
+            pitch: 0.0,
+            yaw: 0.0,
+            upside_down: false,
         }
     }
 }
@@ -227,6 +228,21 @@ fn pan_orbit_camera(
         }
 
         if any {
+            let rot = Quat::from_euler(EulerRot::YXZ, state.yaw, state.pitch, 0.0);
+            transform.rotation = rot;
+            transform.translation = state.center + rot * Vec3::Z * state.radius;
+        }
+    }
+}
+
+fn reset_camera(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut q_camera: Query<(&mut PanOrbitState, &mut Transform)>,
+) {
+    if keys.just_pressed(KeyCode::KeyR) {
+        for (mut state, mut transform) in &mut q_camera {
+            *state = PanOrbitState::default_position();
+
             let rot = Quat::from_euler(EulerRot::YXZ, state.yaw, state.pitch, 0.0);
             transform.rotation = rot;
             transform.translation = state.center + rot * Vec3::Z * state.radius;
