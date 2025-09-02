@@ -246,105 +246,46 @@ fn setup_cube(
 
     let indices = Indices::U32(vec![0, 1, 2, 0, 2, 3]);
 
-    // Front
-    let front_vertices = vec![
-        Vec3::new(-0.5, -0.5, 0.5),
-        Vec3::new(0.5, -0.5, 0.5),
-        Vec3::new(0.5, 0.5, 0.5),
-        Vec3::new(-0.5, 0.5, 0.5),
-    ];
-    let front_normal = Vec3::Z;
-    commands.spawn((
-        Mesh3d(meshes.add(create_plane_mesh(
-            front_vertices,
-            front_normal,
-            indices.clone(),
-        ))),
-        MeshMaterial3d(material.clone()),
-        Transform::default(),
-    ));
+    let half_size = 0.5;
 
-    // Back
-    let back_vertices = vec![
-        Vec3::new(-0.5, -0.5, -0.5),
-        Vec3::new(-0.5, 0.5, -0.5),
-        Vec3::new(0.5, 0.5, -0.5),
-        Vec3::new(0.5, -0.5, -0.5),
-    ];
-    let back_normal = Vec3::NEG_Z;
-    commands.spawn((
-        Mesh3d(meshes.add(create_plane_mesh(
-            back_vertices,
-            back_normal,
-            indices.clone(),
-        ))),
-        MeshMaterial3d(material.clone()),
-        Transform::default(),
-    ));
+    for axis in 0..3 {
+        for side in [-1.0f32, 1.0] {
+            let mut normal = Vec3::ZERO;
+            normal[axis] = side;
 
-    // Left
-    let left_vertices = vec![
-        Vec3::new(-0.5, -0.5, -0.5),
-        Vec3::new(-0.5, -0.5, 0.5),
-        Vec3::new(-0.5, 0.5, 0.5),
-        Vec3::new(-0.5, 0.5, -0.5),
-    ];
-    let left_normal = Vec3::NEG_X;
-    commands.spawn((
-        Mesh3d(meshes.add(create_plane_mesh(
-            left_vertices,
-            left_normal,
-            indices.clone(),
-        ))),
-        MeshMaterial3d(material.clone()),
-        Transform::default(),
-    ));
+            let u_axis = (axis + 1) % 3;
+            let v_axis = (axis + 2) % 3;
 
-    // Right
-    let right_vertices = vec![
-        Vec3::new(0.5, -0.5, 0.5),
-        Vec3::new(0.5, -0.5, -0.5),
-        Vec3::new(0.5, 0.5, -0.5),
-        Vec3::new(0.5, 0.5, 0.5),
-    ];
-    let right_normal = Vec3::X;
-    commands.spawn((
-        Mesh3d(meshes.add(create_plane_mesh(
-            right_vertices,
-            right_normal,
-            indices.clone(),
-        ))),
-        MeshMaterial3d(material.clone()),
-        Transform::default(),
-    ));
+            let u_mult = side;
+            let v_mult = 1.0;
 
-    // Top
-    let top_vertices = vec![
-        Vec3::new(-0.5, 0.5, 0.5),
-        Vec3::new(0.5, 0.5, 0.5),
-        Vec3::new(0.5, 0.5, -0.5),
-        Vec3::new(-0.5, 0.5, -0.5),
-    ];
-    let top_normal = Vec3::Y;
-    commands.spawn((
-        Mesh3d(meshes.add(create_plane_mesh(top_vertices, top_normal, indices.clone()))),
-        MeshMaterial3d(material.clone()),
-        Transform::default(),
-    ));
+            let mut vertices = vec![];
+            for i in 0..4 {
+                let su = if i == 0 || i == 3 {
+                    -half_size
+                } else {
+                    half_size
+                } * u_mult;
+                let sv = if i == 0 || i == 1 {
+                    -half_size
+                } else {
+                    half_size
+                } * v_mult;
 
-    // Bottom
-    let bottom_vertices = vec![
-        Vec3::new(-0.5, -0.5, 0.5),
-        Vec3::new(-0.5, -0.5, -0.5),
-        Vec3::new(0.5, -0.5, -0.5),
-        Vec3::new(0.5, -0.5, 0.5),
-    ];
-    let bottom_normal = Vec3::NEG_Y;
-    commands.spawn((
-        Mesh3d(meshes.add(create_plane_mesh(bottom_vertices, bottom_normal, indices))),
-        MeshMaterial3d(material),
-        Transform::default(),
-    ));
+                let mut pos = Vec3::ZERO;
+                pos[axis] = half_size * side;
+                pos[u_axis] = su;
+                pos[v_axis] = sv;
+                vertices.push(pos);
+            }
+
+            commands.spawn((
+                Mesh3d(meshes.add(create_plane_mesh(vertices, normal, indices.clone()))),
+                MeshMaterial3d(material.clone()),
+                Transform::default(),
+            ));
+        }
+    }
 }
 
 fn create_plane_mesh(vertices: Vec<Vec3>, normal: Vec3, indices: Indices) -> Mesh {
